@@ -297,7 +297,33 @@ client.on(Events.InteractionCreate, async interaction => {
         if (interaction.customId === "verify_modal") {
 
             const member = interaction.member;
-            const robloxUsername = interaction.fields.getTextInputValue("username").trim();
+            const inputUsername = interaction.fields.getTextInputValue("username").trim();
+
+            await interaction.deferReply({ ephemeral: true });
+
+            let robloxUsername = null;
+            try {
+                const res = await fetch("https://users.roblox.com/v1/usernames/users", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ usernames: [inputUsername], excludeBannedUsers: false })
+                });
+                const data = await res.json();
+                if (data.data && data.data.length > 0) {
+                    robloxUsername = data.data[0].name;
+                }
+            } catch (err) {
+                console.error("Roblox API error:", err.message);
+                return interaction.editReply({
+                    content: "❌ Could not reach the Roblox API. Please try again later."
+                });
+            }
+
+            if (!robloxUsername) {
+                return interaction.editReply({
+                    content: `❌ The Roblox username **${inputUsername}** does not exist. Please check your username and try again.`
+                });
+            }
 
             await member.roles.add(process.env.VERIFIED_ROLE_ID);
             await member.roles.remove(process.env.UNVERIFIED_ROLE_ID);
@@ -308,9 +334,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 console.error(`Could not set nickname for ${member.user.tag}:`, err.message);
             }
 
-            return interaction.reply({
-                content: `✅ You are now verified as **${robloxUsername}**!`,
-                ephemeral: true
+            return interaction.editReply({
+                content: `✅ You are now verified as **${robloxUsername}** on Roblox!`
             });
         }
 
