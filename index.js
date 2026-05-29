@@ -81,8 +81,40 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 /* Ready */
 /* ───────────────────────────── */
 
-client.once(Events.ClientReady, () => {
+client.once(Events.ClientReady, async () => {
     console.log(`Logged in as ${client.user.tag}`);
+
+    try {
+        const channel = await client.channels.fetch(process.env.VERIFY_CHANNEL_ID);
+
+        const recent = await channel.messages.fetch({ limit: 20 });
+        const alreadySent = recent.some(msg =>
+            msg.author.id === client.user.id &&
+            msg.components.length > 0 &&
+            msg.components[0].components.some(c => c.customId === 'verify_btn')
+        );
+
+        if (!alreadySent) {
+            const embed = new EmbedBuilder()
+                .setTitle("Server Verification")
+                .setDescription("Click **Verify** below to gain access to the server.")
+                .setColor("Green");
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId("verify_btn")
+                    .setLabel("Verify")
+                    .setStyle(ButtonStyle.Success)
+            );
+
+            await channel.send({ embeds: [embed], components: [row] });
+            console.log("✅ Verify panel sent to channel");
+        } else {
+            console.log("ℹ️ Verify panel already present, skipping");
+        }
+    } catch (err) {
+        console.error("Failed to send verify panel:", err);
+    }
 });
 
 /* ───────────────────────────── */
