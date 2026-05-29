@@ -17,132 +17,8 @@ const {
     TextInputStyle
 } = require('discord.js');
 
-const express = require('express');
-const crypto  = require('crypto');
-
 /* ───────────────────────────── */
-/* OAuth Config                 */
-/* ───────────────────────────── */
-
-const REDIRECT_URI      = `https://${process.env.REPLIT_DEV_DOMAIN}/callback`;
-const ROBLOX_AUTH_URL   = 'https://apis.roblox.com/oauth/v1/authorize';
-const ROBLOX_TOKEN_URL  = 'https://apis.roblox.com/oauth/v1/token';
-const ROBLOX_USER_URL   = 'https://apis.roblox.com/oauth/v1/userinfo';
-
-const verificationSessions = new Map(); // state -> { userId, guildId }
-
-/* ───────────────────────────── */
-/* Express OAuth Callback Server */
-/* ───────────────────────────── */
-
-const app = express();
-
-app.get('/callback', async (req, res) => {
-    const { code, state } = req.query;
-
-    if (!code || !state) {
-        return res.send(page('❌ Invalid Request', 'Missing code or state. Please try verifying again in Discord.', '#e74c3c'));
-    }
-
-    const session = verificationSessions.get(state);
-    if (!session) {
-        return res.send(page('❌ Session Expired', 'Your verification link has expired. Please click Verify again in Discord.', '#e74c3c'));
-    }
-    verificationSessions.delete(state);
-
-    let tokenData;
-    try {
-        const tokenRes = await fetch(ROBLOX_TOKEN_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                grant_type:    'authorization_code',
-                code,
-                redirect_uri:  REDIRECT_URI,
-                client_id:     process.env.ROBLOX_CLIENT_ID,
-                client_secret: process.env.ROBLOX_CLIENT_SECRET
-            })
-        });
-        tokenData = await tokenRes.json();
-    } catch (err) {
-        console.error('Token exchange error:', err);
-        return res.send(page('❌ Error', 'Could not reach Roblox. Please try again later.', '#e74c3c'));
-    }
-
-    if (!tokenData.access_token) {
-        console.error('No access token:', tokenData);
-        return res.send(page('❌ Auth Failed', 'Roblox did not return a valid token. Please try again.', '#e74c3c'));
-    }
-
-    let userInfo;
-    try {
-        const userRes = await fetch(ROBLOX_USER_URL, {
-            headers: { Authorization: `Bearer ${tokenData.access_token}` }
-        });
-        userInfo = await userRes.json();
-    } catch (err) {
-        console.error('User info error:', err);
-        return res.send(page('❌ Error', 'Could not fetch your Roblox profile. Please try again.', '#e74c3c'));
-    }
-
-    const robloxUsername = userInfo.preferred_username || userInfo.name || 'Unknown';
-
-    try {
-        const guild  = await client.guilds.fetch(session.guildId);
-        const member = await guild.members.fetch(session.userId);
-
-        await member.roles.add(process.env.VERIFIED_ROLE_ID);
-        await member.roles.remove(process.env.UNVERIFIED_ROLE_ID);
-
-        try {
-            await member.setNickname(robloxUsername);
-        } catch (e) {
-            console.error('Could not set nickname:', e.message);
-        }
-
-        console.log(`✅ Verified ${member.user.tag} as Roblox user "${robloxUsername}"`);
-        return res.send(page('✅ Verified!', `You are now verified as <strong>${robloxUsername}</strong>.<br>You can close this tab and return to Discord.`, '#2ecc71'));
-    } catch (err) {
-        console.error('Discord update error:', err);
-        return res.send(page('❌ Discord Error', 'Could not update your Discord roles. Please contact a staff member.', '#e74c3c'));
-    }
-});
-
-app.listen(3000, '0.0.0.0', () => {
-    console.log(`✅ OAuth server listening — redirect URI: ${REDIRECT_URI}`);
-});
-
-function page(title, message, color) {
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>${title}</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Segoe UI',Arial,sans-serif;background:#0f0f1a;color:#fff;
-         display:flex;align-items:center;justify-content:center;min-height:100vh}
-    .card{background:#1a1a2e;border-radius:16px;padding:48px 40px;text-align:center;
-          max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.4)}
-    .icon{font-size:56px;margin-bottom:16px}
-    h1{font-size:1.6rem;margin-bottom:12px;color:${color}}
-    p{color:#aaa;line-height:1.6}
-    strong{color:#fff}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">${title.startsWith('✅') ? '✅' : '❌'}</div>
-    <h1>${title.replace(/^[✅❌]\s*/, '')}</h1>
-    <p>${message}</p>
-  </div>
-</body>
-</html>`;
-}
-
-/* ───────────────────────────── */
-/* Discord Client                */
+/* Client                        */
 /* ───────────────────────────── */
 
 const client = new Client({
@@ -201,7 +77,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 })();
 
 /* ───────────────────────────── */
-/* Ready → Send Verify Panel    */
+/* Ready → Auto-send Verify Panel */
 /* ───────────────────────────── */
 
 client.once(Events.ClientReady, async () => {
@@ -324,31 +200,24 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (interaction.isButton()) {
 
-        /* VERIFY — redirect to Roblox OAuth */
+        /* VERIFY — show Roblox username modal */
         if (interaction.customId === 'verify_btn') {
 
-            const state = crypto.randomBytes(16).toString('hex');
-            verificationSessions.set(state, {
-                userId:  interaction.user.id,
-                guildId: interaction.guild.id
-            });
+            const modal = new ModalBuilder()
+                .setCustomId('verify_modal')
+                .setTitle('Roblox Verification');
 
-            setTimeout(() => verificationSessions.delete(state), 10 * 60 * 1000);
+            const input = new TextInputBuilder()
+                .setCustomId('username')
+                .setLabel('Enter your Roblox username')
+                .setStyle(TextInputStyle.Short)
+                .setMinLength(3)
+                .setMaxLength(20)
+                .setRequired(true);
 
-            const params = new URLSearchParams({
-                client_id:     process.env.ROBLOX_CLIENT_ID,
-                redirect_uri:  REDIRECT_URI,
-                scope:         'openid profile',
-                response_type: 'code',
-                state
-            });
+            modal.addComponents(new ActionRowBuilder().addComponents(input));
 
-            const oauthUrl = `${ROBLOX_AUTH_URL}?${params}`;
-
-            return interaction.reply({
-                content: `🔐 **Click the link below to verify your Roblox account:**\n${oauthUrl}\n\n*This link expires in 10 minutes.*`,
-                ephemeral: true
-            });
+            return interaction.showModal(modal);
         }
 
         /* APPLY */
@@ -398,6 +267,53 @@ client.on(Events.InteractionCreate, async interaction => {
     /* ───────── MODALS ───────── */
 
     if (interaction.isModalSubmit()) {
+
+        /* VERIFY — look up username against Roblox API */
+        if (interaction.customId === 'verify_modal') {
+
+            const member       = interaction.member;
+            const inputUsername = interaction.fields.getTextInputValue('username').trim();
+
+            await interaction.deferReply({ ephemeral: true });
+
+            let robloxUsername = null;
+            try {
+                const res  = await fetch('https://users.roblox.com/v1/usernames/users', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ usernames: [inputUsername], excludeBannedUsers: false })
+                });
+                const data = await res.json();
+                if (data.data && data.data.length > 0) {
+                    robloxUsername = data.data[0].name;
+                }
+            } catch (err) {
+                console.error('Roblox API error:', err.message);
+                return interaction.editReply({
+                    content: '❌ Could not reach the Roblox API. Please try again later.'
+                });
+            }
+
+            if (!robloxUsername) {
+                return interaction.editReply({
+                    content: `❌ The Roblox username **${inputUsername}** does not exist. Please check your spelling and try again.`
+                });
+            }
+
+            await member.roles.add(process.env.VERIFIED_ROLE_ID);
+            await member.roles.remove(process.env.UNVERIFIED_ROLE_ID);
+
+            try {
+                await member.setNickname(robloxUsername);
+            } catch (err) {
+                console.error(`Could not set nickname for ${member.user.tag}:`, err.message);
+            }
+
+            console.log(`✅ Verified ${member.user.tag} as Roblox user "${robloxUsername}"`);
+            return interaction.editReply({
+                content: `✅ You are now verified as **${robloxUsername}** on Roblox!`
+            });
+        }
 
         /* APPLICATION SUBMIT */
         if (interaction.customId === 'apply_modal') {
