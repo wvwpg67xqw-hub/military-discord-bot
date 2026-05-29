@@ -225,9 +225,9 @@ client.on(Events.InteractionCreate, async interaction => {
 
             const input = new TextInputBuilder()
                 .setCustomId("username")
-                .setLabel("Roblox Username (optional)")
+                .setLabel("Roblox Username")
                 .setStyle(TextInputStyle.Short)
-                .setRequired(false);
+                .setRequired(true);
 
             modal.addComponents(
                 new ActionRowBuilder().addComponents(input)
@@ -297,12 +297,19 @@ client.on(Events.InteractionCreate, async interaction => {
         if (interaction.customId === "verify_modal") {
 
             const member = interaction.member;
+            const robloxUsername = interaction.fields.getTextInputValue("username").trim();
 
             await member.roles.add(process.env.VERIFIED_ROLE_ID);
             await member.roles.remove(process.env.UNVERIFIED_ROLE_ID);
 
+            try {
+                await member.setNickname(robloxUsername);
+            } catch (err) {
+                console.error(`Could not set nickname for ${member.user.tag}:`, err.message);
+            }
+
             return interaction.reply({
-                content: "✅ You are now verified!",
+                content: `✅ You are now verified as **${robloxUsername}**!`,
                 ephemeral: true
             });
         }
