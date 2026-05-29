@@ -1,0 +1,24 @@
+{
+  "name": "military-rp-bot",
+  "version": "1.0.0",
+  "description": "Discord military RP bot with verification, staff applications, and role management",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "military",
+    "roblox",
+    "verification",
+    "staff-applications"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  }
+}
